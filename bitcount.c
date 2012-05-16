@@ -1,7 +1,9 @@
 #include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <nmmintrin.h>
 
 #define TEST_INIT(str, fcn_name) \
 	static void fcn_name##_test(void) { \
@@ -22,13 +24,13 @@
 		elapsed_time_us += 1000000l * (end.tv_sec - start.tv_sec); \
 		\
 		gettimeofday(&start, NULL); \
-		for(x = 0; x < 64*1024*1024; x+=4) { \
+		for(x = 0; x < 64*1024*1024; x += 4) { \
 			total2 += fcn_name(x); \
 			total2 += fcn_name(x+1); \
 			total2 += fcn_name(x+2); \
 			total2 += fcn_name(x+3); \
 		} \
-		for(x = UINT_MAX; x > UINT_MAX - 64*1024*1024; x-=4) { \
+		for(x = UINT_MAX; x > UINT_MAX - 64*1024*1024; x -= 4) { \
 			total2 += fcn_name(x); \
 			total2 += fcn_name(x-1); \
 			total2 += fcn_name(x-2); \
@@ -38,10 +40,18 @@
 		unrolled_elapsed_time_us = end.tv_usec - start.tv_usec; \
 		unrolled_elapsed_time_us += 1000000l * (end.tv_sec - start.tv_sec); \
 		\
-		printf("%s %6.3fs (%.3fs unrolled) %d %d\n", str, elapsed_time_us / 1e6, unrolled_elapsed_time_us / 1e6, total1, total2); \
+		printf("%s %6.3fs (%.3fs unrolled) %d %d\n", \
+			str, \
+			elapsed_time_us / 1e6, \
+			unrolled_elapsed_time_us / 1e6, \
+			total1, total2); \
 	}
 
-static const unsigned char bit_lookup[256] = {
+static const uint8_t cnt4[16] = {
+	0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4
+};
+
+static const uint8_t cnt8[256] = {
 	0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,
 	3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,
 	3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,
@@ -60,18 +70,18 @@ inline static unsigned int simple(unsigned int x) {
 }
 
 inline static unsigned int lookup1(unsigned int x) {
-	return bit_lookup[x & 0xFF] +
-	       bit_lookup[(x >> 8) & 0xFF] +
-	       bit_lookup[(x >> 16) & 0xFF] +
-	       bit_lookup[x >> 24];
+	return cnt8[x & 0xFF] +
+	       cnt8[(x >> 8) & 0xFF] +
+	       cnt8[(x >> 16) & 0xFF] +
+	       cnt8[x >> 24];
 }
 
 inline static unsigned int lookup2(unsigned int x) {
 	unsigned char *y = (unsigned char *)&x;
-	return bit_lookup[y[0]] +
-		   bit_lookup[y[1]] +
-		   bit_lookup[y[2]] +
-		   bit_lookup[y[3]];
+	return cnt8[y[0]] +
+		   cnt8[y[1]] +
+		   cnt8[y[2]] +
+		   cnt8[y[3]];
 }
 
 inline static unsigned int kernighan(unsigned int x) {
@@ -85,7 +95,7 @@ inline static unsigned int kernighan(unsigned int x) {
 inline static unsigned int mod(unsigned int x) {
 	unsigned int c;
 	c = ((x & 0xFFF) * 0x1001001001001ULL & 0x84210842108421ULL) % 0x1F;
-	c += (((x & 0xFFF000) >> 12) * 0x1001001001001ULL&0x84210842108421ULL) % 0x1F;
+	c += (((x & 0xFFF000) >> 12) * 0x1001001001001ULL& 0x84210842108421ULL) % 0x1F;
 	c += ((x >> 24) * 0x1001001001001ULL & 0x84210842108421ULL) % 0x1F;
 	return c;
 }
@@ -109,6 +119,29 @@ TEST_INIT("mod       ", mod)
 TEST_INIT("parallel  ", parallel)
 TEST_INIT("builtin   ", builtin)
 
+static void intrin64(void) {
+	unsigned total = 0;
+	uint64_t x;
+	uint64_t t;
+	struct timeval start, end;
+	time_t elapsed_time_us;
+	
+	gettimeofday(&start, NULL);
+	for(x = 0, t = 0x200000000000000ULL; x < 32*1024*1024; x += 2, t += 0x200000002ULL) {
+		total += _mm_popcnt_u64(t);
+		total += _mm_popcnt_u64(t+0x100000001ULL);
+	}
+	for(x = UINT_MAX, t = 0xFFFFFFFFFDFFFFFFULL; x > UINT_MAX - 32*1024*1024; x -= 2, t -= 0x200000002ULL) {
+		total += _mm_popcnt_u64(t);
+		total += _mm_popcnt_u64(t-0x100000001ULL);
+	}
+	gettimeofday(&end, NULL);
+	elapsed_time_us = end.tv_usec - start.tv_usec;
+	elapsed_time_us += 1000000l * (end.tv_sec - start.tv_sec);
+	
+	printf("intrin64   %6.3fs %d\n", elapsed_time_us / 1e6, total);
+}
+
 int main() {
 	simple_test();
 	lookup1_test();
@@ -117,6 +150,7 @@ int main() {
 	mod_test();
 	parallel_test();
 	builtin_test();
+	intrin64();
 	return EXIT_SUCCESS;
 }
 
