@@ -6,8 +6,10 @@
 #include <nmmintrin.h>
 
 #define TEST_INIT(str, fcn_name) \
+	/* pop counting 128*1024*1024 4-byte integers */ \
 	static void fcn_name##_test(void) { \
-		unsigned int x, total1 = 0, total2 = 0; \
+		unsigned int x;\
+		unsigned long int total1 = 0, total2 = 0; \
 		struct timeval start, end; \
 		time_t elapsed_time_us, unrolled_elapsed_time_us; \
 		\
@@ -40,7 +42,7 @@
 		unrolled_elapsed_time_us = end.tv_usec - start.tv_usec; \
 		unrolled_elapsed_time_us += 1000000l * (end.tv_sec - start.tv_sec); \
 		\
-		printf("%s %6.3fs (%.3fs unrolled) %d %d\n", \
+		printf("%s %6.3fs (%.3fs unrolled) %ld %ld\n", \
 			str, \
 			elapsed_time_us / 1e6, \
 			unrolled_elapsed_time_us / 1e6, \
@@ -120,9 +122,8 @@ TEST_INIT("parallel  ", parallel)
 TEST_INIT("builtin   ", builtin)
 
 static void intrin64(void) {
-	unsigned total = 0;
-	uint64_t x;
-	uint64_t t;
+	unsigned long int total = 0;
+	uint64_t x, t;
 	struct timeval start, end;
 	time_t elapsed_time_us;
 	
@@ -139,10 +140,38 @@ static void intrin64(void) {
 	elapsed_time_us = end.tv_usec - start.tv_usec;
 	elapsed_time_us += 1000000l * (end.tv_sec - start.tv_sec);
 	
-	printf("intrin64   %6.3fs %d\n", elapsed_time_us / 1e6, total);
+	printf("intrin64   %6.3fs %ld\n", elapsed_time_us / 1e6, total);
+}
+
+static void mem(void) {
+	unsigned long int total = 0;
+	uint64_t *data;
+	struct timeval start, end;
+	time_t elapsed_time_us;
+	size_t i, n = 64*1024*1024;
+	
+	data = malloc(sizeof(data[0]) * n);
+	for(i = 0; i < n; i++) {
+		data[i] = (((uint64_t)rand()) << 32) + rand();
+	}
+	
+	gettimeofday(&start, NULL);
+	for(i = 0; i < n - 1; i += 2) {
+		total += _mm_popcnt_u64(data[i]);
+		total += _mm_popcnt_u64(data[i+1]);
+	}
+	for(; i < n; i++) {
+		total += _mm_popcnt_u64(data[i]);
+	}
+	gettimeofday(&end, NULL);
+	elapsed_time_us = end.tv_usec - start.tv_usec;
+	elapsed_time_us += 1000000l * (end.tv_sec - start.tv_sec);
+	
+	printf("mem        %6.3fs %ld\n", elapsed_time_us / 1e6, total);
 }
 
 int main() {
+	printf("-- register-only --\n");
 	simple_test();
 	lookup1_test();
 	lookup2_test();
@@ -151,6 +180,8 @@ int main() {
 	parallel_test();
 	builtin_test();
 	intrin64();
+	printf("--- from memory ---\n");
+	mem();
 	return EXIT_SUCCESS;
 }
 
