@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
-#include <nmmintrin.h>
 
 #define TEST_INIT(str, fcn_name) \
 	/* pop counting 128*1024*1024 4-byte integers */ \
@@ -108,7 +107,7 @@ inline static unsigned int parallel(unsigned int x) {
 	return (((x + (x >> 4)) & 0xF0F0F0F) * 0x1010101) >> 24;
 }
 
-inline static unsigned int builtin(unsigned int x) {
+inline static unsigned int builtin32(unsigned int x) {
 	/* compiles down to popcntl if available */
 	return __builtin_popcount(x);
 }
@@ -119,9 +118,9 @@ TEST_INIT("lookup2   ", lookup2)
 TEST_INIT("kernighan ", kernighan)
 TEST_INIT("mod       ", mod)
 TEST_INIT("parallel  ", parallel)
-TEST_INIT("builtin   ", builtin)
+TEST_INIT("builtin32 ", builtin32)
 
-static void intrin64(void) {
+static void builtin64(void) {
 	unsigned long int total = 0;
 	uint64_t x, t;
 	struct timeval start, end;
@@ -129,18 +128,18 @@ static void intrin64(void) {
 	
 	gettimeofday(&start, NULL);
 	for(x = 0, t = 0x200000000000000ULL; x < 32*1024*1024; x += 2, t += 0x200000002ULL) {
-		total += _mm_popcnt_u64(t);
-		total += _mm_popcnt_u64(t+0x100000001ULL);
+		total += __builtin_popcountll(t);
+		total += __builtin_popcountll(t+0x100000001ULL);
 	}
 	for(x = UINT_MAX, t = 0xFFFFFFFFFDFFFFFFULL; x > UINT_MAX - 32*1024*1024; x -= 2, t -= 0x200000002ULL) {
-		total += _mm_popcnt_u64(t);
-		total += _mm_popcnt_u64(t-0x100000001ULL);
+		total += __builtin_popcountll(t);
+		total += __builtin_popcountll(t-0x100000001ULL);
 	}
 	gettimeofday(&end, NULL);
 	elapsed_time_us = end.tv_usec - start.tv_usec;
 	elapsed_time_us += 1000000l * (end.tv_sec - start.tv_sec);
 	
-	printf("intrin64   %6.3fs %ld\n", elapsed_time_us / 1e6, total);
+	printf("builtin64  %6.3fs %ld\n", elapsed_time_us / 1e6, total);
 }
 
 static void mem(void) {
@@ -157,11 +156,11 @@ static void mem(void) {
 	
 	gettimeofday(&start, NULL);
 	for(i = 0; i < n - 1; i += 2) {
-		total += _mm_popcnt_u64(data[i]);
-		total += _mm_popcnt_u64(data[i+1]);
+		total += __builtin_popcountll(data[i]);
+		total += __builtin_popcountll(data[i+1]);
 	}
 	for(; i < n; i++) {
-		total += _mm_popcnt_u64(data[i]);
+		total += __builtin_popcountll(data[i]);
 	}
 	gettimeofday(&end, NULL);
 	elapsed_time_us = end.tv_usec - start.tv_usec;
@@ -178,8 +177,8 @@ int main() {
 	kernighan_test();
 	mod_test();
 	parallel_test();
-	builtin_test();
-	intrin64();
+	builtin32_test();
+	builtin64();
 	printf("--- from memory ---\n");
 	mem();
 	return EXIT_SUCCESS;
