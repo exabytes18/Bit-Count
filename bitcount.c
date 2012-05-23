@@ -285,6 +285,7 @@ int main() {
 	parallel_test();
 	builtin32_test();
 	builtin64();
+	printf("\n");
 	
 	printf("---- shoot-out ----\n");
 	shootout();
